@@ -1,0 +1,42 @@
+---
+- name: Set up and configure Nginx web server
+  hosts: webservers
+  become: true # Run tasks with sudo / root privileges
+
+  vars:
+    web_port: 80
+    app_message: "Hello from Ansible-managed server!"
+    doc_root: /var/www/html
+
+  tasks:
+    - name: Ensure apt cache is updated (Ubuntu/Debian)
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Install Nginx package
+      ansible.builtin.package:
+        name: nginx
+        state: present
+
+    - name: Deploy custom index.html
+      ansible.builtin.copy:
+        dest: "{{ doc_root }}/index.html"
+        content: "<h1>{{ app_message }}</h1>\n"
+        mode: "0644"
+        owner: www-data
+        group: www-data
+      notify: Restart Nginx
+
+    - name: Ensure Nginx service is running and enabled on boot
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
