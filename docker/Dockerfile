@@ -1,25 +1,46 @@
-# Stage 1: Build
-FROM node:22-alpine AS builder
+# ==========================================
+# Stage 1: Build Dependencies
+# ==========================================
+FROM python:3.12-slim AS builder
 
-USER node
-WORKDIR /home/node/app
+WORKDIR /build
 
-COPY --chown=node:node package*.json ./
-RUN npm ci
+# Prevent Python from buffering outputs
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-COPY --chown=node:node . .
-RUN npm run build
+# Create a virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Stage 2: Production Server
-FROM node:22-alpine AS runner
+COPY requirements.txt .
 
-RUN npm install -g serve
+# Install dependencies into the virtual environment
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-USER node
-WORKDIR /home/node/app
+# ==========================================
+# Stage 2: Runtime Image
+# ==========================================
+FROM python:3.12-slim AS runner
 
-COPY --chown=node:node --from=builder /home/node/app/dist ./dist
+WORKDIR /app
 
-EXPOSE 3000
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
 
-CMD ["serve", "-s", "dist", "-l", "3000"]
+# Copy the pre-built virtual environment from builder stage
+COPY --from=builder /opt/venv /opt/venv
+
+# Copy application source code
+COPY ./src /app/src
+
+# Security best practice: Run container as a non-root user
+RUN addgroup --system appgroup && adduser --system --group appuser
+USER appuser
+
+EXPOSE 8000
+
+# Run uvicorn server
+CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8000"]
